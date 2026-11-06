@@ -73,15 +73,10 @@ Dans un nouveau terminal :
 ```powershell
 Set-Location .\backend
 npm install
-Get-Content ..\.env | ForEach-Object {
-    if ($_ -match '^\s*([^#=]+)\s*=\s*(.*)\s*$') {
-        [Environment]::SetEnvironmentVariable($matches[1].Trim(), $matches[2].Trim(), 'Process')
-    }
-}
 npm run start:dev
 ```
 
-L'API et le tableau de bord sont servis à l'adresse **http://localhost:3000**. Le mode `start:dev` redémarre le serveur lorsque les fichiers TypeScript surveillés changent.
+L'API charge automatiquement le fichier `.env` situé à la racine du projet. L'API et le tableau de bord sont servis à l'adresse **http://localhost:3000**. Le mode `start:dev` redémarre le serveur lorsque les fichiers TypeScript surveillés changent.
 
 ### 3. Installer et lancer le processeur Kafka
 
