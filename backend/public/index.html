@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>GeoRescue - Dashboard</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { margin: 0; padding: 0; font-family: Arial, sans-serif; display: flex; }
+        #map { width: 75vw; height: 100vh; }
+        #sidebar { width: 25vw; padding: 20px; background: #2c3e50; color: white; height: 100vh; overflow-y: auto; box-sizing: border-box; }
+        .alert-card { background: #e74c3c; padding: 10px; margin-bottom: 10px; border-radius: 5px; }
+        .dispatch-list { background: #34495e; padding: 10px; border-radius: 5px; font-size: 0.9em; }
+        h2 { margin-top: 0; }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div id="sidebar">
+        <h2>🚨 Alertes Sismiques</h2>
+        <div id="alerts-container">En attente de données...</div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        const map = L.map('map').setView([33.589, -7.618], 10);
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {            attribution: '&copy; OpenStreetMap &copy; CARTO'
+        }).addTo(map);
+
+        const hospitalIcon = L.icon({
+            iconUrl: 'https://cdn-icons-png.flaticon.com/512/2966/2966327.png',
+            iconSize: [30, 30]
+        });
+
+        // Charger les hôpitaux
+        fetch('/api/hopitaux')
+            .then(res => res.json())
+            .then(data => {
+                data.forEach(h => {
+                    L.marker([h.geom.coordinates[1], h.geom.coordinates[0]], {icon: hospitalIcon})
+                        .bindPopup(`<b>${h.nom}</b><br>Capacité: ${h.capacite}`)
+                        .addTo(map);
+                });
+            });
+
+        let currentLayerGroup = L.layerGroup().addTo(map);
+
+        // Actualiser les alertes toutes les 3 secondes
+        setInterval(() => {
+            fetch('/api/alertes')
+                .then(res => res.json())
+                .then(alertes => {
+                    currentLayerGroup.clearLayers();
+                    const container = document.getElementById('alerts-container');
+                    container.innerHTML = '';
+
+                    alertes.forEach(a => {
+                        const lat = a.geom.coordinates[1];
+                        const lon = a.geom.coordinates[0];
+
+                        // Marqueur Epicentre
+                        L.circleMarker([lat, lon], { color: 'red', radius: 8, fillOpacity: 1 }).addTo(currentLayerGroup);
+                        
+                        // Buffer d'impact (20km) généré par PostGIS
+                        L.geoJSON(a.buffer, { style: { color: 'red', fillOpacity: 0.2, weight: 1 } }).addTo(currentLayerGroup);
+
+                        // Trouver les secours les plus proches
+                        fetch(`/api/dispatch?lat=${lat}&lon=${lon}`)
+                            .then(r => r.json())
+                            .then(dispatch => {
+                                let dispatchHtml = dispatch.map(d => `<li>${d.nom} (${d.distance_km.toFixed(1)} km)</li>`).join('');
+                                
+                                container.innerHTML += `
+                                    <div class="alert-card">
+                                        <strong>Magnitude ${a.magnitude}</strong><br>
+                                        <div class="dispatch-list">
+                                            <strong>Secours à dépêcher (K-NN) :</strong>
+                                            <ul>${dispatchHtml}</ul>
+                                        </div>
+                                    </div>
+                                `;
+                            });
+                    });
+                });
+        }, 3000);
+    </script>
+</body>
+</html>

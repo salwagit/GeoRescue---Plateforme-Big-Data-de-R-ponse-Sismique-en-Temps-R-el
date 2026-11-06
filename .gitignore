@@ -1,0 +1,22 @@
+# Dependencies and virtual environments
+backend/node_modules/
+backend/dist/
+processor/.venv/
+processor/Lib/
+processor/Scripts/
+processor/pyvenv.cfg
+simulateur/.venv/
+**/__pycache__/
+*.py[cod]
+*.tsbuildinfo
+
+# Environment files and local secrets
+.env
+.env.*
+!.env.example
+
+# Local editor and operating-system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
