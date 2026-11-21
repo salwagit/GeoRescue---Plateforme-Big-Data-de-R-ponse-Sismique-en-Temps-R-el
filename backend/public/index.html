@@ -1,87 +1,310 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <title>GeoRescue - Dashboard</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <style>
-        body { margin: 0; padding: 0; font-family: Arial, sans-serif; display: flex; }
-        #map { width: 75vw; height: 100vh; }
-        #sidebar { width: 25vw; padding: 20px; background: #2c3e50; color: white; height: 100vh; overflow-y: auto; box-sizing: border-box; }
-        .alert-card { background: #e74c3c; padding: 10px; margin-bottom: 10px; border-radius: 5px; }
-        .dispatch-list { background: #34495e; padding: 10px; border-radius: 5px; font-size: 0.9em; }
-        h2 { margin-top: 0; }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GeoRescue – Console de crise sismique</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+:root{
+  --ink:#101b25; --panel:#16242f; --raise:#1d2f3d; --line:#2b3f4f; --txt:#e7eef4; --mute:#8fa4b5;
+  --sev:#d7263d; --mod:#f08a24; --leg:#f2c744; --ok:#2bb3a3; --focus:#7cc4ff;
+  --num:'Barlow Condensed','Arial Narrow',sans-serif; --body:'Barlow',system-ui,sans-serif;
+}
+*{box-sizing:border-box} html,body{height:100%;margin:0}
+body{font:15px/1.4 var(--body);color:var(--txt);background:var(--ink);display:grid;grid-template-columns:1fr 410px;overflow:hidden}
+button{font:inherit;color:inherit;cursor:pointer} :focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+#mapwrap{position:relative;min-width:0} #map{position:absolute;inset:0;background:#dfe6ea}
+
+/* barre du haut : stats + sismogramme */
+#top{position:absolute;z-index:800;top:12px;left:12px;right:12px;display:flex;gap:10px;pointer-events:none;flex-wrap:wrap}
+#top>*{pointer-events:auto;background:rgba(16,27,37,.94);border:1px solid var(--line);border-radius:6px;backdrop-filter:blur(4px)}
+.brand{padding:8px 14px;display:flex;flex-direction:column;justify-content:center}
+.brand b{font:700 22px/1 var(--num);letter-spacing:.02em}
+.live{font-size:12px;color:var(--mute);display:flex;align-items:center;gap:6px;margin-top:3px}
+.live i{width:8px;height:8px;border-radius:50%;background:var(--mute)} .live.on i{background:var(--ok);box-shadow:0 0 0 0 var(--ok);animation:ping 2s infinite}
+@keyframes ping{70%{box-shadow:0 0 0 7px transparent}}
+.stats{display:flex}.stat{padding:8px 16px;border-left:1px solid var(--line)}.stat:first-child{border:0}
+.stat strong{display:block;font:600 26px/1 var(--num)} .stat span{font-size:12px;color:var(--mute)}
+.seis{padding:4px 10px;flex:1;min-width:220px;max-width:420px}.seis span{font-size:12px;color:var(--mute)}
+#seis{width:100%;height:38px;display:block}
+
+/* couches + légende */
+#layers{position:absolute;z-index:800;left:12px;bottom:28px;padding:10px 12px;background:rgba(16,27,37,.94);border:1px solid var(--line);border-radius:6px;font-size:13px;min-width:190px}
+#layers label{display:flex;align-items:center;gap:8px;padding:2px 0;cursor:pointer}
+#layers hr{border:0;border-top:1px solid var(--line);margin:8px 0}
+.sw{width:12px;height:12px;border-radius:50%;display:inline-block;margin-right:6px;vertical-align:-1px}
+
+/* panneau latéral */
+aside{background:var(--panel);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.tabs{display:flex;border-bottom:1px solid var(--line)}
+.tabs button{flex:1;padding:14px 8px;background:none;border:0;border-bottom:3px solid transparent;color:var(--mute);font-weight:600}
+.tabs button[aria-selected=true]{color:var(--txt);border-color:var(--sev)}
+.tools{display:flex;justify-content:space-between;align-items:center;padding:10px 16px;font-size:13px;color:var(--mute)}
+.tgl{background:var(--raise);border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:12px}
+.tgl[aria-pressed=true]{border-color:var(--ok);color:var(--ok)}
+.pane{flex:1;overflow:auto;padding:0 12px 16px}.pane[hidden]{display:none}
+.empty{color:var(--mute);padding:24px 8px;text-align:center}
+
+.card{background:var(--raise);border:1px solid var(--line);border-left:5px solid var(--c);border-radius:6px;padding:11px 12px;margin-bottom:10px;cursor:pointer;text-align:left;width:100%;display:block}
+.card.sel{background:#223748;border-color:var(--c);box-shadow:0 0 0 1px var(--c)}
+.card .hd{display:flex;align-items:center;gap:12px}
+.mag{font:700 38px/1 var(--num);color:var(--c);min-width:52px}
+.hd .who{flex:1;min-width:0}.who b{display:block;font-weight:600}.who small{color:var(--mute)}
+.tag{font-size:11px;border:1px solid var(--line);border-radius:4px;padding:1px 6px;color:var(--mute)}
+.kv{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+.kv div{background:var(--panel);border-radius:4px;padding:6px 8px}.kv strong{display:block;font:600 19px/1.1 var(--num)}.kv span{font-size:11px;color:var(--mute)}
+.kv .bad strong{color:#ff6b7d}
+.disp{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
+.disp h4{margin:0 0 8px;font-size:13px;font-weight:600;color:var(--mute)}
+.row{margin-bottom:9px;font-size:13px}.row .l{display:flex;justify-content:space-between;gap:8px}
+.bar{height:6px;background:var(--panel);border-radius:3px;margin-top:4px;overflow:hidden}.bar i{display:block;height:100%;background:var(--ok)}
+.row.down .l{color:#ff8a98}.row.down .bar i{background:var(--sev);width:100%!important}
+.note{font-size:12px;color:var(--mute);margin-top:6px}
+
+/* scénario */
+.form{padding:16px 6px}.form p{color:var(--mute);margin:0 0 14px}
+.form label{display:block;margin:14px 0 6px;font-weight:600}
+.big{font:700 54px/1 var(--num)}
+input[type=range]{width:100%;accent-color:var(--sev)}
+.go{width:100%;margin-top:18px;padding:12px;border:0;border-radius:6px;background:var(--sev);font-weight:600}
+.go:disabled{background:var(--raise);color:var(--mute);cursor:not-allowed}
+.coords{font:600 15px var(--num);color:var(--mute)}
+
+/* carte : marqueurs */
+.epi{width:22px;height:22px;border-radius:50%;background:var(--c);border:3px solid #fff;box-shadow:0 0 0 0 var(--c);animation:pulse 1.8s infinite}
+@keyframes pulse{70%{box-shadow:0 0 0 22px transparent}}
+.hosp{width:26px;height:26px;border-radius:50%;background:var(--ok);border:2px solid #fff;color:#fff;font:700 18px/22px var(--num);text-align:center;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+.hosp.down{background:var(--sev)} .hosp.down::after{content:"";position:absolute;inset:-2px;border-radius:50%;border:2px dashed #fff;opacity:.8}
+.hosp.dim{opacity:.55}
+.tg{width:26px;height:26px;border:3px solid var(--sev);border-radius:50%;background:rgba(215,38,61,.2)}
+.leaflet-tooltip{font-family:var(--body)}
+#toast{position:absolute;z-index:900;left:50%;top:84px;transform:translate(-50%,-20px);background:var(--sev);color:#fff;padding:8px 16px;border-radius:6px;font-weight:600;opacity:0;transition:.25s;pointer-events:none}
+#toast.show{opacity:1;transform:translate(-50%,0)}
+
+@media (max-width:860px){
+  body{grid-template-columns:1fr;grid-template-rows:55vh 1fr}
+  aside{border-left:0;border-top:1px solid var(--line)} .stats .stat:nth-child(n+3),.seis{display:none} #layers{bottom:8px}
+}
+@media (prefers-reduced-motion:reduce){.epi,.live.on i{animation:none}#toast{transition:none}}
+</style>
 </head>
 <body>
-    <div id="map"></div>
-    <div id="sidebar">
-        <h2>🚨 Alertes Sismiques</h2>
-        <div id="alerts-container">En attente de données...</div>
+<div id="mapwrap">
+  <div id="map"></div>
+  <div id="top">
+    <div class="brand"><b>GeoRescue</b><div class="live" id="live"><i></i><span>connexion…</span></div></div>
+    <div class="stats">
+      <div class="stat"><strong id="s-nb">–</strong><span>alertes (1 h)</span></div>
+      <div class="stat"><strong id="s-max">–</strong><span>magnitude max</span></div>
+      <div class="stat"><strong id="s-pop">–</strong><span>personnes en zone sévère</span></div>
+      <div class="stat"><strong id="s-def">–</strong><span>lits manquants</span></div>
     </div>
+    <div class="seis"><span>Sismogramme des dernières alertes</span><svg id="seis" viewBox="0 0 400 38" preserveAspectRatio="none" role="img" aria-label="Sismogramme"></svg></div>
+  </div>
+  <div id="layers">
+    <label><input type="checkbox" data-l="hop" checked> Hôpitaux</label>
+    <label><input type="checkbox" data-l="faille" checked> Failles</label>
+    <label><input type="checkbox" data-l="cluster" checked> Événements regroupés (DBSCAN)</label>
+    <label><input type="checkbox" data-l="sect"> Population par secteur</label>
+    <label><input type="checkbox" data-l="vor"> Zones par hôpital (Voronoï)</label>
+    <hr>
+    <div><span class="sw" style="background:var(--sev)"></span>Zone sévère</div>
+    <div><span class="sw" style="background:var(--mod)"></span>Zone modérée</div>
+    <div><span class="sw" style="background:var(--leg)"></span>Zone ressentie</div>
+  </div>
+  <div id="toast" role="status"></div>
+</div>
 
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script>
-        const map = L.map('map').setView([33.589, -7.618], 10);
-        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {            attribution: '&copy; OpenStreetMap &copy; CARTO'
-        }).addTo(map);
+<aside>
+  <div class="tabs" role="tablist">
+    <button role="tab" aria-selected="true" data-tab="alertes">Alertes</button>
+    <button role="tab" aria-selected="false" data-tab="scenario">Simuler un séisme</button>
+  </div>
+  <section class="pane" id="p-alertes">
+    <div class="tools"><span id="count"></span><button class="tgl" id="follow" aria-pressed="true">Suivi automatique</button></div>
+    <div id="list"><div class="empty">En attente d'alertes…</div></div>
+  </section>
+  <section class="pane" id="p-scenario" hidden>
+    <div class="form">
+      <p>Cliquez sur la carte pour placer l'épicentre, choisissez la magnitude, puis lancez la simulation. La base calcule zones, population exposée et affectation des hôpitaux.</p>
+      <div class="coords" id="sc-pos">Aucun épicentre choisi</div>
+      <label for="sc-mag">Magnitude</label>
+      <div class="big" id="sc-val">6.0</div>
+      <input type="range" id="sc-mag" min="4" max="7.5" step="0.1" value="6">
+      <button class="go" id="sc-go" disabled>Lancer la simulation</button>
+    </div>
+  </section>
+</aside>
 
-        const hospitalIcon = L.icon({
-            iconUrl: 'https://cdn-icons-png.flaticon.com/512/2966/2966327.png',
-            iconSize: [30, 30]
-        });
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = n => (n ?? 0).toLocaleString('fr-FR');
+const ZC = {SEVERE:'#d7263d', MODERE:'#f08a24', LEGER:'#f2c744'};
+const magColor = m => m >= 6.5 ? '#ff4d63' : m >= 5.5 ? '#f0603a' : m >= 4.8 ? '#f08a24' : '#e8b923';
+const magLabel = m => m < 4.5 ? 'Léger' : m < 5.5 ? 'Modéré' : m < 6.5 ? 'Fort' : 'Majeur';
+const getJSON = u => fetch(u).then(r => r.ok ? r.json() : Promise.reject(new Error(u)));
+const ll = g => [g.coordinates[1], g.coordinates[0]];
 
-        // Charger les hôpitaux
-        fetch('/api/hopitaux')
-            .then(res => res.json())
-            .then(data => {
-                data.forEach(h => {
-                    L.marker([h.geom.coordinates[1], h.geom.coordinates[0]], {icon: hospitalIcon})
-                        .bindPopup(`<b>${h.nom}</b><br>Capacité: ${h.capacite}`)
-                        .addTo(map);
-                });
-            });
+const map = L.map('map', {zoomControl:false}).setView([33.52, -7.6], 10);
+L.control.zoom({position:'bottomright'}).addTo(map);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+  {attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>', maxZoom:19}).addTo(map);
+['sect','vor','zones','liens'].forEach((n,i) => map.createPane(n).style.zIndex = 330 + i*20);
 
-        let currentLayerGroup = L.layerGroup().addTo(map);
+const G = {};   // groupes de couches
+for (const k of ['hop','faille','cluster','sect','vor','dots','sel']) G[k] = L.layerGroup();
+['hop','faille','cluster','dots','sel'].forEach(k => G[k].addTo(map));
 
-        // Actualiser les alertes toutes les 3 secondes
-        setInterval(() => {
-            fetch('/api/alertes')
-                .then(res => res.json())
-                .then(alertes => {
-                    currentLayerGroup.clearLayers();
-                    const container = document.getElementById('alerts-container');
-                    container.innerHTML = '';
+const S = {alerts:[], selected:null, follow:true, hopitaux:new Map(), scen:null, scMarker:null};
 
-                    alertes.forEach(a => {
-                        const lat = a.geom.coordinates[1];
-                        const lon = a.geom.coordinates[0];
+// ---------- couches de référence ----------
+async function loadStatic(){
+  const [hop, sect, fail, vor] = await Promise.all(['hopitaux','secteurs','failles','voronoi'].map(n => getJSON('/api/'+n)));
+  hop.forEach(h => {
+    const m = L.marker(ll(h.geom), {icon: hospIcon(''), zIndexOffset:500})
+      .bindTooltip(`<b>${esc(h.nom)}</b><br>${h.lits_disponibles} lits disponibles / ${h.capacite}`).addTo(G.hop);
+    S.hopitaux.set(h.id, m);
+  });
+  const maxPop = Math.max(...sect.map(s => s.population));
+  sect.forEach(s => L.geoJSON(s.geom, {pane:'sect', style:{color:'#6b7f8f', weight:.5, fillColor:'#3a6ea5', fillOpacity:.08 + .5*s.population/maxPop}})
+    .bindTooltip(`${esc(s.nom)} : ${fmt(s.population)} hab. (fictif)<br>${s.nb_alertes_severes_24h} alerte(s) sévère(s) / 24 h`).addTo(G.sect));
+  fail.forEach(f => L.geoJSON(f.geom, {style:{color:'#6a2c91', weight:3, dashArray:'10 6'}}).bindTooltip(esc(f.nom)).addTo(G.faille));
+  const pal = ['#5b8def','#2bb3a3','#c76bd6','#e0a030','#d95f5f','#6bbf59','#8f7ae0','#4aa3c7'];
+  vor.forEach((v,i) => L.geoJSON(v.geom, {pane:'vor', style:{color:pal[i%8], weight:1.5, fillColor:pal[i%8], fillOpacity:.12}})
+    .bindTooltip(`${esc(v.nom)} : ${fmt(v.aire_km2)} km²`).addTo(G.vor));
+}
+function hospIcon(cls){ return L.divIcon({className:'', html:`<div class="hosp ${cls}">+</div>`, iconSize:[26,26], iconAnchor:[13,13]}); }
 
-                        // Marqueur Epicentre
-                        L.circleMarker([lat, lon], { color: 'red', radius: 8, fillOpacity: 1 }).addTo(currentLayerGroup);
-                        
-                        // Buffer d'impact (20km) généré par PostGIS
-                        L.geoJSON(a.buffer, { style: { color: 'red', fillOpacity: 0.2, weight: 1 } }).addTo(currentLayerGroup);
+// ---------- alertes ----------
+const ago = iso => { const s = Math.max(0, (Date.now() - new Date(iso)) / 1000);
+  return s < 60 ? `il y a ${Math.floor(s)} s` : s < 3600 ? `il y a ${Math.floor(s/60)} min` : `il y a ${Math.floor(s/3600)} h`; };
 
-                        // Trouver les secours les plus proches
-                        fetch(`/api/dispatch?lat=${lat}&lon=${lon}`)
-                            .then(r => r.json())
-                            .then(dispatch => {
-                                let dispatchHtml = dispatch.map(d => `<li>${d.nom} (${d.distance_km.toFixed(1)} km)</li>`).join('');
-                                
-                                container.innerHTML += `
-                                    <div class="alert-card">
-                                        <strong>Magnitude ${a.magnitude}</strong><br>
-                                        <div class="dispatch-list">
-                                            <strong>Secours à dépêcher (K-NN) :</strong>
-                                            <ul>${dispatchHtml}</ul>
-                                        </div>
-                                    </div>
-                                `;
-                            });
-                    });
-                });
-        }, 3000);
-    </script>
+function renderList(){
+  $('#count').textContent = S.alerts.length ? `${S.alerts.length} dernières alertes` : '';
+  if (!S.alerts.length) { $('#list').innerHTML = '<div class="empty">En attente d\'alertes…</div>'; return; }
+  $('#list').innerHTML = S.alerts.map(a => {
+    const sel = a.id === S.selected, c = magColor(a.magnitude);
+    const disp = sel ? `<div class="disp"><h4>Secours à dépêcher (K-NN, selon lits disponibles)</h4>${a.dispatches.map(d => {
+        const pct = d.lits_disponibles ? Math.min(100, 100 * d.patients_assignes / d.lits_disponibles) : 0;
+        return d.dans_zone_severe
+          ? `<div class="row down"><div class="l"><span>${esc(d.nom)}</span><span>${d.distance_km.toFixed(1)} km</span></div><div class="bar"><i></i></div><div class="note">Dans la zone sévère : considéré hors service</div></div>`
+          : `<div class="row"><div class="l"><span>${esc(d.nom)}</span><span>${d.distance_km.toFixed(1)} km</span></div><div class="bar"><i style="width:${pct}%"></i></div><div class="note">${d.patients_assignes} patients / ${d.lits_disponibles} lits</div></div>`;
+      }).join('')}<div class="note">${a.faille_nom ? `Faille la plus proche : ${esc(a.faille_nom)} (${a.faille_km.toFixed(1)} km)` : ''}</div></div>` : '';
+    return `<button class="card ${sel?'sel':''}" style="--c:${c}" data-id="${a.id}">
+      <div class="hd"><div class="mag">${a.magnitude.toFixed(1)}</div>
+        <div class="who"><b>${magLabel(a.magnitude)}</b><small data-t="${a.timestamp}">${ago(a.timestamp)}</small></div>
+        <span class="tag">${a.source === 'SCENARIO' ? 'simulation' : 'capteur'}</span></div>
+      <div class="kv"><div><strong>${fmt(a.population_severe)}</strong><span>en zone sévère</span></div>
+        <div><strong>${fmt(a.victimes_estimees)}</strong><span>victimes estimées</span></div>
+        <div class="${a.deficit_lits>0?'bad':''}"><strong>${fmt(a.deficit_lits)}</strong><span>lits manquants</span></div></div>${disp}</button>`;
+  }).join('');
+}
+
+function renderMap(){
+  G.dots.clearLayers(); G.sel.clearLayers();
+  S.hopitaux.forEach(m => m.setIcon(hospIcon('')));
+  S.alerts.forEach(a => { if (a.id !== S.selected)
+    L.circleMarker(ll(a.geom), {radius:4 + a.magnitude, color:'#fff', weight:1.5, fillColor:magColor(a.magnitude), fillOpacity:.85})
+      .on('click', () => select(a.id, true)).bindTooltip(`M${a.magnitude.toFixed(1)} · ${ago(a.timestamp)}`).addTo(G.dots); });
+  const a = S.alerts.find(x => x.id === S.selected); if (!a) return;
+  const order = {LEGER:0, MODERE:1, SEVERE:2};
+  [...a.zones].sort((x,y) => order[x.niveau]-order[y.niveau]).forEach(z =>
+    L.geoJSON(z.geom, {pane:'zones', style:{color:ZC[z.niveau], weight:z.niveau==='SEVERE'?2:1.2, fillColor:ZC[z.niveau], fillOpacity:z.niveau==='SEVERE'?.38:.16}})
+      .bindTooltip(`Rayon ${z.rayon_km.toFixed(1)} km · ${fmt(z.population)} personnes`, {sticky:true}).addTo(G.sel));
+  const epi = ll(a.geom);
+  L.marker(epi, {icon:L.divIcon({className:'', html:`<div class="epi" style="--c:${magColor(a.magnitude)}"></div>`, iconSize:[22,22], iconAnchor:[11,11]}), zIndexOffset:900}).addTo(G.sel);
+  a.dispatches.forEach(d => {
+    const m = S.hopitaux.get(d.hopital_id);
+    if (m) m.setIcon(hospIcon(d.dans_zone_severe ? 'down' : d.patients_assignes ? '' : 'dim'));
+    if (!d.dans_zone_severe && d.patients_assignes > 0)
+      L.polyline([epi, ll(d.geom)], {pane:'liens', color:'#1c8f82', weight:1.5 + Math.min(5, d.patients_assignes/20), dashArray:'6 8', opacity:.9}).addTo(G.sel);
+  });
+}
+
+function select(id, fly){
+  S.selected = id; renderList(); renderMap();
+  const a = S.alerts.find(x => x.id === id);
+  if (a) { if (fly) { const b = L.geoJSON(a.zones.find(z => z.niveau==='MODERE')?.geom ?? a.geom).getBounds();
+      map.flyToBounds(b.pad(.4), {duration:.8, maxZoom:12}); }
+    $('#s-pop').textContent = fmt(a.population_severe); $('#s-def').textContent = fmt(a.deficit_lits); }
+}
+
+function drawSeismo(){
+  const pts = [...S.alerts].reverse().slice(-24), W = 400, base = 24, step = W / Math.max(pts.length, 1);
+  let d = `M0,${base}`;
+  pts.forEach((a,i) => { const x = i*step + step/2, h = Math.min(22, (a.magnitude-3)*6);
+    d += ` L${x-step*.35},${base} L${x-step*.15},${base-h} L${x+step*.05},${base+h*.55} L${x+step*.2},${base-h*.25} L${x+step*.35},${base}`; });
+  $('#seis').innerHTML = `<path d="${d} L${W},${base}" fill="none" stroke="#ff6b7d" stroke-width="1.4" vector-effect="non-scaling-stroke"/>`;
+}
+
+async function loadAlerts(){
+  S.alerts = await getJSON('/api/alertes?limit=15'); drawSeismo();
+  if (S.alerts.length && (S.follow || !S.alerts.some(a => a.id === S.selected))) select(S.alerts[0].id, false);
+  else { renderList(); renderMap(); }
+}
+async function onNew(id, force){
+  if (S.alerts.some(a => a.id === id)) { if (force) select(id, true); return; }
+  const [a] = await getJSON('/api/alertes/' + id); if (!a) return;
+  S.alerts = [a, ...S.alerts].slice(0, 30); drawSeismo();
+  toast(`Alerte M${a.magnitude.toFixed(1)} – ${fmt(a.population_severe)} personnes en zone sévère`);
+  if (S.follow || force) select(id, true); else { renderList(); renderMap(); }
+  refreshExtras();
+}
+let extraTimer; function refreshExtras(){ clearTimeout(extraTimer); extraTimer = setTimeout(async () => {
+  try { const [st, cl] = await Promise.all([getJSON('/api/stats'), getJSON('/api/clusters')]);
+    $('#s-nb').textContent = st.nb_1h; $('#s-max').textContent = st.mag_max_1h ? st.mag_max_1h.toFixed(1) : '–';
+    G.cluster.clearLayers();
+    cl.forEach(c => L.geoJSON(c.geom, {style:{color:'#6a2c91', weight:2, dashArray:'4 4', fillColor:'#6a2c91', fillOpacity:.07}})
+      .bindTooltip(`Événement : ${c.nb} alertes, magnitude max ${c.mag_max.toFixed(1)}`).addTo(G.cluster));
+  } catch {} }, 400); }
+
+// ---------- temps réel (SSE) ----------
+function connect(){
+  const live = $('#live'), es = new EventSource('/api/stream');
+  es.onopen = () => { live.classList.add('on'); live.lastChild.textContent = 'en direct'; loadAlerts(); refreshExtras(); };
+  es.onmessage = e => { const m = JSON.parse(e.data); if (m.id) onNew(m.id); };
+  es.onerror = () => { live.classList.remove('on'); live.lastChild.textContent = 'reconnexion…'; };
+}
+let toastT; function toast(t){ const el = $('#toast'); el.textContent = t; el.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove('show'), 3500); }
+
+// ---------- interface ----------
+$('#list').addEventListener('click', e => { const c = e.target.closest('.card'); if (c) select(+c.dataset.id, true); });
+$('#follow').onclick = e => { S.follow = !S.follow; e.currentTarget.setAttribute('aria-pressed', S.follow); };
+document.querySelectorAll('#layers input[data-l]').forEach(i => i.onchange = () => i.checked ? G[i.dataset.l].addTo(map) : map.removeLayer(G[i.dataset.l]));
+document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.tabs button').forEach(x => x.setAttribute('aria-selected', x === b));
+  $('#p-alertes').hidden = b.dataset.tab !== 'alertes'; $('#p-scenario').hidden = b.dataset.tab !== 'scenario';
+  map.getContainer().style.cursor = b.dataset.tab === 'scenario' ? 'crosshair' : '';
+  if (b.dataset.tab === 'scenario') S.follow = false, $('#follow').setAttribute('aria-pressed', false);
+});
+map.on('click', e => {
+  if ($('#p-scenario').hidden) return;
+  S.scen = e.latlng;
+  if (!S.scMarker) S.scMarker = L.marker(e.latlng, {icon:L.divIcon({className:'', html:'<div class="tg"></div>', iconSize:[26,26], iconAnchor:[13,13]}), draggable:true})
+    .addTo(map).on('dragend', ev => { S.scen = ev.target.getLatLng(); showPos(); });
+  else S.scMarker.setLatLng(e.latlng);
+  showPos();
+});
+function showPos(){ $('#sc-pos').textContent = `Épicentre : ${S.scen.lat.toFixed(4)}, ${S.scen.lng.toFixed(4)}`; $('#sc-go').disabled = false; }
+$('#sc-mag').oninput = e => $('#sc-val').textContent = (+e.target.value).toFixed(1);
+$('#sc-go').onclick = async () => {
+  const btn = $('#sc-go'); btn.disabled = true; btn.textContent = 'Calcul en cours…';
+  try {
+    const r = await fetch('/api/scenario', {method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({lat:S.scen.lat, lon:S.scen.lng, magnitude:+$('#sc-mag').value})});
+    if (!r.ok) throw new Error(); const {id} = await r.json();
+    document.querySelector('[data-tab=alertes]').click(); await onNew(id, true);
+  } catch { toast('La simulation a échoué'); }
+  btn.textContent = 'Lancer la simulation'; btn.disabled = false;
+};
+setInterval(() => document.querySelectorAll('[data-t]').forEach(el => el.textContent = ago(el.dataset.t)), 5000);
+
+loadStatic().catch(() => toast('Impossible de charger les couches de référence')).then(connect);
+</script>
 </body>
 </html>

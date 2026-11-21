@@ -12,7 +12,103 @@ GeoRescue est un prototype de supervision des alertes sismiques et d'aide à la 
 - Affichage des cinq alertes les plus récentes et de leur zone d'impact calculée sur un rayon de 20 km.
 - Recherche des trois hôpitaux les plus proches d'une alerte et calcul de leur distance.
 - Affichage d'une liste des secours à dépêcher dans le tableau de bord.
+ ## Évolutions de la version 2
 
+Cette version transforme le prototype de visualisation en outil d'aide à la décision, avec une logique spatiale placée dans la base de données.
+
+### Base de données spatiale (`init.sql`)
+
+- **Modèle enrichi** : 6 tables utilisant les trois types de géométries.
+  - `hopitaux` (points) : capacité et lits disponibles.
+  - `failles` (lignes) : faille de démonstration.
+  - `secteurs` (polygones) : grille de 35 secteurs avec population fictive.
+  - `alertes_sismiques` (points) : séismes reçus et résultats calculés.
+  - `zones_impact` (polygones) : 3 zones par alerte (sévère, modérée, ressentie).
+  - `dispatches` : affectation des patients aux hôpitaux.
+- **Intégrité** : clés étrangères, contraintes `CHECK`, validité des géométries (`ST_IsValid`), index GIST sur chaque colonne géométrique.
+- **Fonctions PL/pgSQL**
+  - `rayon_impact_km` : rayon de chaque zone selon la magnitude.
+  - `calculer_impact` : génère les zones (`ST_Buffer`) et estime la population exposée par intersection de surfaces (`ST_Intersection`, `ST_Area`).
+  - `affecter_secours` : parcours K-NN (opérateur `<->`) qui répartit les victimes selon les lits disponibles. Un hôpital situé en zone sévère est considéré hors service.
+- **Trigger** `trg_alerte_apres_insert` : tout est calculé automatiquement à l'insertion d'une alerte, puis une notification `pg_notify` est émise.
+
+### Traitement spatial et analyses
+
+- Requêtes avancées commentées dans `sql/requetes_avancees.sql` : jointure spatiale, K-NN avec `LATERAL`, regroupement `ST_ClusterDBSCAN`, diagramme de Voronoï, `ST_Within`, `NOT EXISTS` avec `ST_DWithin`, fonction de fenêtrage `LAG`, `ST_Union`.
+- Étude d'indexation dans `sql/benchmark_index.sql` : 500 000 points comparés sans index, avec GIST (geometry et geography) et BRIN, via `EXPLAIN ANALYZE`.
+
+### Temps réel
+
+Le navigateur n'interroge plus l'API en boucle. La base notifie l'API (`LISTEN/NOTIFY`), qui diffuse chaque nouvelle alerte au tableau de bord par Server-Sent Events (`/api/stream`).
+
+### API (NestJS)
+
+| Méthode | Route | Description |
+|---|---|---|
+| `GET` | `/api/alertes?limit=` | Dernières alertes avec zones, population exposée et dispatch. |
+| `GET` | `/api/alertes/:id` | Détail d'une alerte. |
+| `GET` | `/api/secteurs` | Secteurs, population et alertes sévères sur 24 h. |
+| `GET` | `/api/failles` | Failles. |
+| `GET` | `/api/voronoi` | Zone de responsabilité de chaque hôpital. |
+| `GET` | `/api/clusters` | Événements regroupés (alertes de la dernière heure). |
+| `GET` | `/api/stats` | Statistiques globales. |
+| `POST` | `/api/scenario` | Crée une alerte simulée. Corps JSON : `{lat, lon, magnitude}`. |
+| `GET` | `/api/stream` | Flux temps réel : un message `{id}` par nouvelle alerte. |
+
+Les entrées sont validées (coordonnées et magnitude) et renvoient une erreur `400` si elles sont invalides.
+
+### Tableau de bord
+
+- Carte OpenStreetMap avec les zones d'impact de l'alerte sélectionnée, les hôpitaux colorés selon leur état (disponible, hors service) et des lignes vers les hôpitaux affectés.
+- En-tête avec indicateur « en direct », statistiques et sismogramme des dernières alertes.
+- Liste des alertes : magnitude, population en zone sévère, victimes estimées, lits manquants, répartition des patients par hôpital.
+- Mode « Simuler un séisme » : clic sur la carte et choix de la magnitude pour créer une alerte.
+- Couches activables : hôpitaux, failles, événements regroupés, population par secteur, zones de Voronoï.
+
+### Processeur et simulateur
+
+- Le processeur valide les messages Kafka, insère l'alerte, puis affiche le résultat calculé par la base. Un message invalide est ignoré sans arrêter le programme.
+- Le simulateur génère des magnitudes selon la loi de Gutenberg-Richter, des épicentres concentrés autour de la faille et des répliques après les séismes forts.
+
+### Mise à jour d'une base existante
+
+`init.sql` ne s'exécute qu'à la création du volume Docker. Pour appliquer le nouveau schéma :
+
+```powershell
+docker compose down -v
+docker compose up -d
+```
+
+### Exécuter les scripts d'analyse
+
+```powershell
+Get-Content sql\requetes_avancees.sql | docker compose exec -T db psql -U user -d georescue
+Get-Content sql\benchmark_index.sql   | docker compose exec -T db psql -U user -d georescue
+```
+
+### Architecture
+
+```text
+simulateur/producer.py ──► Kafka ──► processor/spark_sedona_job.py
+                                              │ INSERT d'une alerte
+                                              ▼
+                              PostgreSQL + PostGIS
+                              (trigger : zones d'impact, population,
+                               affectation des hôpitaux, pg_notify)
+                                              │ LISTEN / NOTIFY
+                                              ▼
+                                        API NestJS ──► Server-Sent Events
+                                              │
+                                              ▼
+                                 Tableau de bord Leaflet
+```
+
+### Limites du prototype
+
+- Les secteurs, populations, lits disponibles, victimes estimées et la faille sont **fictifs** (démonstration). Les coordonnées des hôpitaux sont approximatives.
+- Le modèle d'impact (rayons, victimes) est un modèle simplifié et n'a aucune valeur scientifique.
+- Le script `processor/spark_sedona_job.py` n'utilise ni Apache Spark ni Apache Sedona malgré son nom historique.
+- Les lits disponibles ne sont pas décrémentés d'une alerte à l'autre : chaque alerte est évaluée indépendamment.
 ## Architecture
 
 ```text
